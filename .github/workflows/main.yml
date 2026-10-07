@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out repository
+      - name: Check out repo
         uses: actions/checkout@v4
 
       - name: Set up Node.js
@@ -18,21 +18,24 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install dependencies
+        run: npm install
+
       - name: Run scraper
         env:
           START_PAGE: 1
           MAX_PAGES: 200
           DELAY_MS: 800
           OUTPUT_PATH: output/clashspot-legend-tags.json
-        run: node scrape_clashspot.js
+        run: npm run scrape
 
-      - name: Upload scraped data
+      - name: Upload JSON artifact
         uses: actions/upload-artifact@v4
         with:
           name: clashspot-legend-tags
           path: output/clashspot-legend-tags.json
 
-      - name: Commit result if it changed
+      - name: Commit updated JSON
         if: github.event_name == 'schedule'
         run: |
           git config user.name "github-actions[bot]"
