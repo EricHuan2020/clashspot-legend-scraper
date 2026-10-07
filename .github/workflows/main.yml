@@ -1,0 +1,44 @@
+name: Clashspot Legend Tag Scraper
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run scraper
+        env:
+          START_PAGE: 1
+          MAX_PAGES: 200
+          DELAY_MS: 800
+          OUTPUT_PATH: output/clashspot-legend-tags.json
+        run: node scrape_clashspot.js
+
+      - name: Upload scraped data
+        uses: actions/upload-artifact@v4
+        with:
+          name: clashspot-legend-tags
+          path: output/clashspot-legend-tags.json
+
+      - name: Commit result if it changed
+        if: github.event_name == 'schedule'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add output/clashspot-legend-tags.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update Clashspot legend tags"
+            git push
+          fi
