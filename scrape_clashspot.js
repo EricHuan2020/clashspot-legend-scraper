@@ -55,22 +55,19 @@ async function fetchPage(browser, pageNum) {
     console.log(`Loading ${url}...`);
 
     await page.goto(url, {
-      waitUntil: 'domcontentloaded',
+      waitUntil: 'networkidle2',
       timeout: 60000
     });
 
-    // Give dynamic content a moment to render
-    await page.waitForTimeout(5000);
-
-    // Try to wait until at least one player link is visible if present
+    // Wait for player links to appear
     try {
-      await page.waitForFunction(
-        () => document.querySelectorAll('a[href*="/en/player/"]').length > 0,
-        { timeout: 15000 }
-      );
+      await page.waitForSelector('a[href*="/en/player/"]', { timeout: 15000 });
     } catch (err) {
-      console.warn('No player links seen yet; continuing with current DOM.');
+      console.warn('Player links not found; continuing with current DOM.');
     }
+
+    // Add a small delay for any remaining dynamic content
+    await sleep(2000);
 
     return await page.content();
   } finally {
