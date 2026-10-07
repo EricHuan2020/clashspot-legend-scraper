@@ -1,0 +1,13 @@
+{
+  "name": "clashspot-legend-scraper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GitHub Action scraper for Clashspot Legend League player tags",
+  "main": "scrape_clashspot.js",
+  "scripts": {
+    "scrape": "node scrape_clashspot.js"
+  },
+  "dependencies": {
+    "puppeteer": "^22.10.0"
+  }
+}
