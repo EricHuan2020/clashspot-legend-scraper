@@ -1,15 +1,22 @@
 const fs = require('fs');
 const path = require('path');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+
+puppeteer.use(StealthPlugin());
 
 const BASE_URL = 'https://clashspot.net/en/rankings/players/legend';
 const START_PAGE = Number(process.env.START_PAGE || 1);
 const MAX_PAGES = Number(process.env.MAX_PAGES || 200);
-const DELAY_MS = Number(process.env.DELAY_MS || 800);
+const DELAY_MS = Number(process.env.DELAY_MS || 1500);
 const OUTPUT_PATH = process.env.OUTPUT_PATH || 'output/clashspot-legend-tags.json';
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function randomBetween(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 function extractTagsFromHtml(html) {
@@ -34,40 +41,72 @@ async function fetchPage(browser, pageNum) {
   const page = await browser.newPage();
 
   try {
+    await page.setViewport({ width: 1366, height: 900 });
+
     await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
     );
 
     await page.setExtraHTTPHeaders({
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Upgrade-Insecure-Requests': '1',
-      'Referer': 'https://clashspot.net/'
+      'accept-language': 'en-US,en;q=0.9',
+      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'sec-fetch-mode': 'navigate',
+      'sec-fetch-site': 'none',
+      'sec-fetch-user': '?1',
+      'upgrade-insecure-requests': '1'
     });
 
     await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, 'webdriver', {
-        get: () => false
+      Object.defineProperty(window, 'navigator', {
+        value: Object.create(window.navigator),
+        configurable: true
+      });
+
+      Object.defineProperty(window.navigator, 'webdriver', {
+        value: undefined,
+        configurable: true
+      });
+
+      Object.defineProperty(window.navigator, 'languages', {
+        value: ['en-US', 'en'],
+        configurable: true
       });
     });
 
     const url = `${BASE_URL}?p=${pageNum}`;
-    console.log(`Loading ${url}...`);
+    console.log(`Loading ${url}`);
 
     await page.goto(url, {
-      waitUntil: 'networkidle2',
-      timeout: 60000
+      waitUntil: 'domcontentloaded',
+      timeout: 120000
     });
 
-    // Wait for player links to appear
-    try {
-      await page.waitForSelector('a[href*="/en/player/"]', { timeout: 15000 });
-    } catch (err) {
-      console.warn('Player links not found; continuing with current DOM.');
+    await sleep(randomBetween(1000, 2500));
+
+    const scrollPositions = [250, 650, 1050];
+    for (const y of scrollPositions) {
+      await page.mouse.move(
+        randomBetween(200, 900),
+        randomBetween(150, 500)
+      );
+      await page.evaluate((scrollY) => {
+        window.scrollTo({ top: scrollY, behavior: 'instant' });
+      }, y);
+      await sleep(randomBetween(400, 1200));
     }
 
-    // Add a small delay for any remaining dynamic content
-    await sleep(2000);
+    await page.waitForFunction(() => {
+      const text = document.body ? document.body.innerText : '';
+      return (
+        document.querySelectorAll('a[href*="/en/player/"]').length > 0 ||
+        /checking your browser|cloudflare|verify you are human/i.test(text)
+      );
+    }, { timeout: 60000 });
+
+    const bodyText = await page.evaluate(() => document.body ? document.body.innerText : '');
+    if (/checking your browser|cloudflare|verify you are human/i.test(bodyText)) {
+      throw new Error(`Cloudflare challenge triggered on page ${pageNum}`);
+    }
 
     return await page.content();
   } finally {
@@ -86,7 +125,8 @@ async function main() {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-blink-features=AutomationControlled',
-      '--window-size=1920,1080'
+      '--window-size=1366,900',
+      '--lang=en-US,en'
     ]
   });
 
@@ -124,7 +164,7 @@ async function main() {
         page += 1;
 
         if (DELAY_MS > 0) {
-          await sleep(DELAY_MS);
+          await sleep(randomBetween(DELAY_MS, DELAY_MS + 1200));
         }
       } catch (err) {
         console.warn(`Stopped early at page ${page}: ${err.message}`);
