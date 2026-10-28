@@ -8,7 +8,7 @@ puppeteer.use(StealthPlugin());
 const BASE_URL = 'https://clashspot.net/en/rankings/players/legend';
 const START_PAGE = Number(process.env.START_PAGE || 1);
 const MAX_PAGES = Number(process.env.MAX_PAGES || 200);
-const DELAY_MS = Number(process.env.DELAY_MS || 1500);
+const DELAY_MS = Number(process.env.DELAY_MS || 800);
 const OUTPUT_PATH = process.env.OUTPUT_PATH || 'output/clashspot-legend-tags.json';
 
 function sleep(ms) {
@@ -37,16 +37,19 @@ function extractTotalPagesFromHtml(html) {
   return parseInt(match[1].replace(/,/g, ''), 10);
 }
 
+function looksLikeCloudflareChallenge(text, url) {
+  const challengePattern = /cloudflare|checking your browser|verify you are human|challenge/i;
+  return challengePattern.test(text || '') || challengePattern.test(url || '');
+}
+
 async function fetchPage(browser, pageNum) {
   const page = await browser.newPage();
 
   try {
     await page.setViewport({ width: 1366, height: 900 });
-
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
     );
-
     await page.setExtraHTTPHeaders({
       'accept-language': 'en-US,en;q=0.9',
       'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -81,31 +84,29 @@ async function fetchPage(browser, pageNum) {
       timeout: 120000
     });
 
-    await sleep(randomBetween(1000, 2500));
+    await sleep(randomBetween(1500, 3000));
 
-    const scrollPositions = [250, 650, 1050];
-    for (const y of scrollPositions) {
-      await page.mouse.move(
-        randomBetween(200, 900),
-        randomBetween(150, 500)
-      );
-      await page.evaluate((scrollY) => {
-        window.scrollTo({ top: scrollY, behavior: 'instant' });
-      }, y);
-      await sleep(randomBetween(400, 1200));
+    const finalUrl = await page.url();
+    const bodyText = await page.evaluate(() => {
+      try {
+        return document.body ? document.body.innerText : '';
+      } catch (err) {
+        return '';
+      }
+    });
+
+    if (looksLikeCloudflareChallenge(bodyText, finalUrl)) {
+      throw new Error(`Cloudflare challenge detected on page ${pageNum}: ${finalUrl}`);
     }
 
-    await page.waitForFunction(() => {
-      const text = document.body ? document.body.innerText : '';
-      return (
-        document.querySelectorAll('a[href*="/en/player/"]').length > 0 ||
-        /checking your browser|cloudflare|verify you are human/i.test(text)
-      );
-    }, { timeout: 60000 });
+    if (!finalUrl.includes('/en/rankings/players/legend')) {
+      throw new Error(`Unexpected redirect on page ${pageNum}: ${finalUrl}`);
+    }
 
-    const bodyText = await page.evaluate(() => document.body ? document.body.innerText : '');
-    if (/checking your browser|cloudflare|verify you are human/i.test(bodyText)) {
-      throw new Error(`Cloudflare challenge triggered on page ${pageNum}`);
+    try {
+      await page.waitForSelector('a[href*="/en/player/"]', { timeout: 15000 });
+    } catch (err) {
+      console.warn(`No player links on page ${pageNum}; continuing with current DOM.`);
     }
 
     return await page.content();
